@@ -20,7 +20,9 @@
   h2 { font-size:16px; margin:0 0 8px; }
   main { display:grid; gap:14px; padding:14px; max-width:1100px; margin:0 auto; }
   @media (min-width: 900px) { main { grid-template-columns: 1fr 1fr; } .wide { grid-column: 1 / -1; } }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; min-width:0; overflow-x:auto; }
+  .scroll { overflow-x:auto; }
+  @media (max-width: 480px) { input[type=number] { min-width: 0; } .stat { grid-template-columns: 1fr 1fr; } }
   .muted { color:var(--muted); font-size:13px; }
   label { display:block; font-size:13px; color:var(--muted); margin-top:8px; }
   input, select, button { font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
@@ -80,12 +82,12 @@
 <section class="card wide">
   <h2>2. Your legs</h2>
   <p class="muted">A <b>buy</b> leg costs premium; a <b>sell</b> leg collects it. Premium is priced from the model unless you type one.</p>
-  <table id="legs"><thead><tr>
+  <div class="scroll"><table id="legs"><thead><tr>
     <th><abbr title="Call (CE) = right to buy. Put (PE) = right to sell.">Type</abbr></th>
     <th><abbr title="The price level where the option starts to have value at expiry.">Strike</abbr></th>
     <th>Side</th><th><abbr title="Number of lots.">Lots</abbr></th>
     <th><abbr title="Leave blank to use the model price. Type a price to test a different one.">Premium (opt.)</abbr></th>
-    <th>Model price</th><th></th></tr></thead><tbody></tbody></table>
+    <th>Model price</th><th></th></tr></thead><tbody></tbody></table></div>
   <div class="row" style="margin-top:10px">
     <button id="addLeg">+ Add leg</button>
     <button id="clearLegs">Clear</button>
@@ -190,6 +192,7 @@ function inputs(){
   };
 }
 function fmt(n, d=2){ return (n>=0?'+':'') + n.toFixed(d); }
+function money(n){ const s = Math.round(Math.abs(n)).toLocaleString('en-IN'); return (n<0?'−':'') + '₹' + s; }
 function cls(n){ return n>0?'pos':(n<0?'neg':''); }
 
 // ---------- leg table ----------
@@ -310,13 +313,13 @@ function probabilities(I){
 function renderStats(I){
   const s = summarise(I);
   const np = netPremium(I);
-  const maxP = s.unlimitedUp || s.unlimitedDown ? (s.unlimitedUp ? 'Unlimited' : fmt(s.maxP,0)) : fmt(s.maxP,0);
-  const maxL = s.unlimitedDown || s.unlimitedUp ? (s.unlimitedDown ? 'Unlimited' : fmt(s.maxL,0)) : fmt(s.maxL,0);
+  const profitTxt = s.unlimitedUp ? 'Unlimited' : money(s.maxP);
+  const lossTxt = s.unlimitedDown ? 'Unlimited' : money(s.maxL);
   const be = s.bes.length ? s.bes.map(b=>b.toFixed(0)).join(', ') : 'none in range';
   $('stats').innerHTML = `
-    <div><span class="muted">Net premium</span><b class="${cls(np)}">${np>=0?'Credit ':'Debit '}₹${Math.abs(np).toLocaleString('en-IN',{maximumFractionDigits:0})}</b></div>
-    <div><span class="muted">Max profit</span><b class="pos">${typeof maxP==='string'&&maxP==='Unlimited'?'Unlimited':'₹'+Math.round(s.maxP).toLocaleString('en-IN')}</b></div>
-    <div><span class="muted">Max loss</span><b class="neg">${maxL==='Unlimited'?'Unlimited':'₹'+Math.round(s.maxL).toLocaleString('en-IN')}</b></div>
+    <div><span class="muted">Net premium</span><b class="${cls(np)}">${np>=0?'Credit ':'Debit '}${money(Math.abs(np))}</b></div>
+    <div><span class="muted">Max profit</span><b class="pos">${profitTxt}</b></div>
+    <div><span class="muted">Max loss</span><b class="neg">${lossTxt}</b></div>
     <div><span class="muted">Breakeven(s) at expiry</span><b>${be}</b></div>`;
   $('statsNote').textContent = legs.length ? 'Max profit and loss are measured across spot from 70% to 130% of your spot input; "Unlimited" means the payoff keeps growing past that range.' : 'Add legs to see the summary.';
 }
