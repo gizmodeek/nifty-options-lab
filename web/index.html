@@ -144,7 +144,33 @@
 </section>
 
 <section class="card wide">
-  <h2>9. Learn the terms</h2>
+  <h2>9. News: read on the source sites</h2>
+  <p class="muted">This page doesn't fetch news. Open a site below in a new tab to read it there.</p>
+  <ul>
+    <li><a href="https://www.moneycontrol.com/" target="_blank" rel="noopener">Moneycontrol</a></li>
+    <li><a href="https://www.reuters.com/markets/" target="_blank" rel="noopener">Reuters Markets</a></li>
+    <li><a href="https://www.cnbc.com/stocks/" target="_blank" rel="noopener">CNBC Stocks</a></li>
+    <li><a href="https://finance.yahoo.com/" target="_blank" rel="noopener">Yahoo Finance</a></li>
+    <li><a href="https://pulse.zerodha.com/" target="_blank" rel="noopener">Zerodha Pulse</a></li>
+  </ul>
+</section>
+
+<section class="card wide">
+  <h2>10. My news log</h2>
+  <p class="muted">Write your own notes about news you read. Save only your summary and the link, not the article text. Entries are stored in this browser only.</p>
+  <div class="row">
+    <div style="flex:1; min-width:140px"><label>Date</label><input id="nDate" type="date"></div>
+    <div style="flex:1; min-width:140px"><label>Source</label><input id="nSource" type="text" maxlength="60" placeholder="e.g. Moneycontrol"></div>
+  </div>
+  <label>Headline (your words)</label><input id="nHead" type="text" maxlength="200">
+  <label>Link to the article</label><input id="nLink" type="url" maxlength="300" placeholder="https://">
+  <label>What I think it could mean (education only)</label><input id="nNote" type="text" maxlength="300">
+  <div class="row" style="margin-top:8px"><button id="nAdd" class="primary">Add entry</button><span class="muted" id="nStatus"></span></div>
+  <div class="scroll" style="margin-top:10px"><table id="nTable"></table></div>
+</section>
+
+<section class="card wide">
+  <h2>11. Learn the terms</h2>
   <details open><summary>Delta</summary><dl><dd>How much the position's value changes for a 1-point rise in spot. Calls are positive, puts negative. Delta near ±0.5 roughly means a 50% chance of finishing in the money.</dd></dl></details>
   <details><summary>Gamma</summary><dl><dd>How fast delta changes as spot moves. High near expiry and at-the-money. Long options have positive gamma; sellers have negative gamma and face sharper losses on big moves.</dd></dl></details>
   <details><summary>Theta</summary><dl><dd>Value lost per day from time decay, all else equal. Option buyers pay theta; option sellers earn it. Decay speeds up as expiry nears.</dd></dl></details>
@@ -527,6 +553,65 @@ $('useAtmIv').addEventListener('click', () => {
   $('chainStatus').textContent = `ATM strike ${atm.strike}: IV set to ${$('iv').value}%.`;
   refresh(false);
 });
+
+// ---------- personal news log (this browser only) ----------
+const LOG_KEY = 'optionsLab.newsLog';
+function loadLog(){
+  try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch (e) { return []; }
+}
+function saveLog(entries){
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(entries)); return true; } catch (e) { return false; }
+}
+function renderLog(){
+  const entries = loadLog();
+  const t = $('nTable');
+  t.innerHTML = '';
+  if (!entries.length){ t.innerHTML = '<tr><td class="muted" style="text-align:left">No entries yet.</td></tr>'; return; }
+  const head = document.createElement('thead');
+  head.innerHTML = '<tr><th>Date</th><th>Source</th><th>Headline</th><th>My note</th><th></th></tr>';
+  const body = document.createElement('tbody');
+  entries.forEach((e, i) => {
+    const tr = document.createElement('tr');
+    const cells = [e.date, e.source, null, e.note];
+    cells.forEach((v, j) => {
+      const td = document.createElement('td');
+      td.style.textAlign = 'left';
+      if (j === 2) {
+        if (/^https?:\/\//i.test(e.link || '')) {
+          const a = document.createElement('a'); a.href = e.link; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          a.textContent = e.headline || '(no headline)'; td.appendChild(a);
+        } else td.textContent = e.headline || '';
+      } else td.textContent = v || '';
+      tr.appendChild(td);
+    });
+    const del = document.createElement('td');
+    const b = document.createElement('button'); b.textContent = 'Delete'; b.dataset.i = i;
+    del.appendChild(b); tr.appendChild(del);
+    body.appendChild(tr);
+  });
+  t.appendChild(head); t.appendChild(body);
+  body.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    const list = loadLog(); list.splice(+b.dataset.i, 1);
+    $('nStatus').textContent = saveLog(list) ? '' : 'Could not save. Your browser may be blocking storage.';
+    renderLog();
+  }));
+}
+$('nAdd').addEventListener('click', () => {
+  const entry = {
+    date: $('nDate').value || new Date().toISOString().slice(0,10),
+    source: $('nSource').value.trim(),
+    headline: $('nHead').value.trim(),
+    link: $('nLink').value.trim(),
+    note: $('nNote').value.trim()
+  };
+  if (!entry.headline){ $('nStatus').textContent = 'Add a headline first.'; return; }
+  if (entry.link && !/^https?:\/\//i.test(entry.link)){ $('nStatus').textContent = 'The link must start with https://'; return; }
+  const list = loadLog(); list.unshift(entry);
+  $('nStatus').textContent = saveLog(list) ? 'Saved.' : 'Could not save. Your browser may be blocking storage.';
+  ['nSource','nHead','nLink','nNote'].forEach(id => $(id).value = '');
+  renderLog();
+});
+renderLog();
 
 // start with a sample so beginners see something
 legs = PRESETS.ic(+$('spot').value);
