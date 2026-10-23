@@ -7,7 +7,7 @@ A small, offline Python project to learn how options work. It:
 - checks position size and stop-loss rules (`src/risk.py`).
 
 ## What it does NOT do
-- No broker connection. It never logs into Axis or any other broker.
+- No broker connection. It never logs into any broker.
 - No orders. It never buys or sells anything.
 - No recommendations. It doesn't pick trades or tell you what to do.
 
