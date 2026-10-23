@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Options Learning Lab</title>
+<style>
+  :root { --bg:#f7f8fa; --card:#ffffff; --ink:#1d2330; --muted:#5b6475; --line:#dde2ea;
+          --green:#1f8a4c; --red:#c0392b; --blue:#2563eb; --amber:#b7791f; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#0f141c; --card:#171e29; --ink:#e7ebf2; --muted:#9aa4b5; --line:#2a3443;
+          --green:#3fbf73; --red:#ef6b5e; --blue:#6ea8ff; --amber:#f0b35a; }
+  }
+  :root[data-theme="dark"] { --bg:#0f141c; --card:#171e29; --ink:#e7ebf2; --muted:#9aa4b5; --line:#2a3443;
+          --green:#3fbf73; --red:#ef6b5e; --blue:#6ea8ff; --amber:#f0b35a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding:16px; border-bottom:1px solid var(--line); background:var(--card); }
+  h1 { font-size:20px; margin:0; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  main { display:grid; gap:14px; padding:14px; max-width:1100px; margin:0 auto; }
+  @media (min-width: 900px) { main { grid-template-columns: 1fr 1fr; } .wide { grid-column: 1 / -1; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .muted { color:var(--muted); font-size:13px; }
+  label { display:block; font-size:13px; color:var(--muted); margin-top:8px; }
+  input, select, button { font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  input[type=number] { width:100%; }
+  button { cursor:pointer; }
+  button.primary { background:var(--blue); color:#fff; border-color:var(--blue); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  .pos { color:var(--green); } .neg { color:var(--red); }
+  .stat { display:grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap:10px; }
+  .stat div { border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .stat b { display:block; font-size:18px; }
+  abbr { text-decoration: underline dotted; cursor: help; }
+  canvas { width:100%; height:300px; display:block; }
+  .warn { border-left:4px solid var(--amber); padding:8px 12px; background:var(--bg); border-radius:6px; }
+  details summary { cursor:pointer; font-weight:600; }
+  dl { margin:6px 0 0; } dt { font-weight:600; margin-top:8px; } dd { margin:2px 0 0 0; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Options Learning Lab <span class="muted">(education only, not advice)</span></h1>
+  <div class="muted">Build an option strategy, see its risk, and learn what each Greek means. Prices are model estimates, not live market data.</div>
+</header>
+
+<main>
+
+<section class="card wide warn">
+  <strong>Read this first.</strong> This page does not connect to any broker, place orders, or recommend trades. Numbers come from the Black-Scholes model using the inputs you type. Real markets differ: volatility changes, prices gap, and liquidity can vanish. Losses can exceed what you expect, especially when selling options.
+</section>
+
+<section class="card wide">
+  <h2>1. Market inputs <span class="muted">(you type these; the page does not fetch live prices)</span></h2>
+  <div class="row">
+    <div style="flex:1; min-width:150px"><label><abbr title="The index level you are assuming for the trade, e.g. Nifty spot.">Spot price</abbr></label><input id="spot" type="number" value="24000" step="1"></div>
+    <div style="flex:1; min-width:150px"><label><abbr title="Implied volatility: the market's expected annual move, as a percent. Higher IV makes options more expensive.">IV (%)</abbr></label><input id="iv" type="number" value="14" step="0.1"></div>
+    <div style="flex:1; min-width:150px"><label><abbr title="Calendar days left until the contract expires.">Days to expiry</abbr></label><input id="days" type="number" value="7" step="1" min="0"></div>
+    <div style="flex:1; min-width:150px"><label><abbr title="Points per contract. Check the current NSE lot size before use; it changes over time.">Lot size</abbr></label><input id="lot" type="number" value="75" step="1" min="1"></div>
+    <div style="flex:1; min-width:150px"><label><abbr title="Risk-free interest rate used in pricing, as a percent.">Interest rate (%)</abbr></label><input id="rate" type="number" value="6.5" step="0.1"></div>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <label style="margin:0">Load a textbook setup:</label>
+    <select id="preset">
+      <option value="">-- choose --</option>
+      <option value="ic">Iron condor (sell range, limited risk)</option>
+      <option value="straddle">Long straddle (bet on a big move)</option>
+      <option value="strangle">Short strangle (bet on a calm market, undefined risk)</option>
+      <option value="bcs">Bull call spread (mildly bullish, limited risk)</option>
+      <option value="bps">Bear put spread (mildly bearish, limited risk)</option>
+    </select>
+    <button id="loadPreset">Load</button>
+  </div>
+</section>
+
+<section class="card wide">
+  <h2>2. Your legs</h2>
+  <p class="muted">A <b>buy</b> leg costs premium; a <b>sell</b> leg collects it. Premium is priced from the model unless you type one.</p>
+  <table id="legs"><thead><tr>
+    <th><abbr title="Call (CE) = right to buy. Put (PE) = right to sell.">Type</abbr></th>
+    <th><abbr title="The price level where the option starts to have value at expiry.">Strike</abbr></th>
+    <th>Side</th><th><abbr title="Number of lots.">Lots</abbr></th>
+    <th><abbr title="Leave blank to use the model price. Type a price to test a different one.">Premium (opt.)</abbr></th>
+    <th>Model price</th><th></th></tr></thead><tbody></tbody></table>
+  <div class="row" style="margin-top:10px">
+    <button id="addLeg">+ Add leg</button>
+    <button id="clearLegs">Clear</button>
+  </div>
+</section>
+
+<section class="card wide">
+  <h2>3. Summary at expiry</h2>
+  <div class="stat" id="stats"></div>
+  <p class="muted" id="statsNote"></p>
+</section>
+
+<section class="card wide">
+  <h2>4. Payoff chart</h2>
+  <p class="muted">
+    <span style="color:var(--blue)">■</span> at expiry (what you make or lose if you hold until expiry) &nbsp;
+    <span style="color:var(--amber)">■</span> today, with your remaining days and IV (theoretical value)
+  </p>
+  <canvas id="chart"></canvas>
+  <div class="row" style="margin-top:8px">
+    <label style="margin:0">Scenario: days passed <span id="dpLabel">0</span></label>
+    <input id="daysPassed" type="range" min="0" max="7" value="0" style="flex:1">
+  </div>
+</section>
+
+<section class="card">
+  <h2>5. Greeks (position level)</h2>
+  <p class="muted">How the position reacts to small changes. Figures are for your full position.</p>
+  <table><thead><tr><th>Greek</th><th>Value</th><th>Meaning</th></tr></thead><tbody id="greeks"></tbody></table>
+</section>
+
+<section class="card">
+  <h2>6. Probability and expected move</h2>
+  <div class="stat" id="probs"></div>
+  <p class="muted">Based on a log-normal price model with your IV and days. Rough estimates only; markets have fat tails and jumps.</p>
+</section>
+
+<section class="card wide">
+  <h2>7. Learn the terms</h2>
+  <details open><summary>Delta</summary><dl><dd>How much the position's value changes for a 1-point rise in spot. Calls are positive, puts negative. Delta near ±0.5 roughly means a 50% chance of finishing in the money.</dd></dl></details>
+  <details><summary>Gamma</summary><dl><dd>How fast delta changes as spot moves. High near expiry and at-the-money. Long options have positive gamma; sellers have negative gamma and face sharper losses on big moves.</dd></dl></details>
+  <details><summary>Theta</summary><dl><dd>Value lost per day from time decay, all else equal. Option buyers pay theta; option sellers earn it. Decay speeds up as expiry nears.</dd></dl></details>
+  <details><summary>Vega</summary><dl><dd>Change in value for a 1-percentage-point change in IV. Long options gain when IV rises; short options lose.</dd></dl></details>
+  <details><summary>Intrinsic and time value</summary><dl><dd>Intrinsic value is what an option would pay right now if exercised. The rest of the premium is time value, which decays to zero at expiry.</dd></dl></details>
+  <details><summary>Breakeven</summary><dl><dd>The spot price at expiry where the strategy's profit is exactly zero after premiums.</dd></dl></details>
+  <details><summary>Stop loss and position sizing</summary><dl><dd>A stop loss is a level where you exit to cap a loss. Position sizing limits how much capital is at risk in one trade. Most education guides suggest risking a small fixed percentage of capital per trade. Defined-risk strategies (spreads, iron condors) make the maximum loss known before entry; naked sells do not.</dd></dl></details>
+</section>
+
+<section class="card wide">
+  <h2>8. Where to check news and rules yourself</h2>
+  <p class="muted">This page does not pull live news. Use these official sources for market rules and circulars:</p>
+  <ul>
+    <li><a href="https://www.nseindia.com" target="_blank" rel="noopener">NSE India</a>: lot sizes, circulars, derivatives notices</li>
+    <li><a href="https://www.sebi.gov.in" target="_blank" rel="noopener">SEBI</a>: F&amp;O regulations and investor studies</li>
+    <li><a href="https://www.rbi.org.in" target="_blank" rel="noopener">RBI</a>: master directions on foreign exchange and rates</li>
+  </ul>
+</section>
+
+</main>
+
+<script>
+// ---------- math helpers ----------
+function pdf(x){ return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI); }
+function cdf(x){ // Abramowitz-Stegun approximation
+  const t = 1/(1+0.2316419*Math.abs(x));
+  const d = 0.3989423*Math.exp(-x*x/2);
+  let p = d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));
+  return x>0 ? 1-p : p;
+}
+// Black-Scholes price and greeks for one option (per 1 unit, no dividends)
+function bs(type, S, K, sigma, T, r){
+  if (T <= 0 || sigma <= 0) {
+    const intrinsic = type==='CE' ? Math.max(S-K,0) : Math.max(K-S,0);
+    return {price:intrinsic, delta: type==='CE' ? (S>K?1:0) : (S<K?-1:0), gamma:0, theta:0, vega:0};
+  }
+  const sqT = Math.sqrt(T);
+  const d1 = (Math.log(S/K) + (r + 0.5*sigma*sigma)*T)/(sigma*sqT);
+  const d2 = d1 - sigma*sqT;
+  const disc = Math.exp(-r*T);
+  let price, delta, theta;
+  if (type==='CE'){
+    price = S*cdf(d1) - K*disc*cdf(d2);
+    delta = cdf(d1);
+    theta = (-S*pdf(d1)*sigma/(2*sqT) - r*K*disc*cdf(d2));
+  } else {
+    price = K*disc*cdf(-d2) - S*cdf(-d1);
+    delta = cdf(d1)-1;
+    theta = (-S*pdf(d1)*sigma/(2*sqT) + r*K*disc*cdf(-d2));
+  }
+  const gamma = pdf(d1)/(S*sigma*sqT);
+  const vega = S*pdf(d1)*sqT;          // per 1.00 change in sigma
+  return {price, delta, gamma, theta: theta/365, vega: vega/100}; // theta per day, vega per 1 vol point
+}
+
+// ---------- state ----------
+let legs = [];
+const $ = id => document.getElementById(id);
+function inputs(){
+  return {
+    S: +$('spot').value, iv: +$('iv').value/100, days: +$('days').value,
+    lot: +$('lot').value, r: +$('rate').value/100
+  };
+}
+function fmt(n, d=2){ return (n>=0?'+':'') + n.toFixed(d); }
+function cls(n){ return n>0?'pos':(n<0?'neg':''); }
+
+// ---------- leg table ----------
+function renderLegs(){
+  const tb = $('legs').querySelector('tbody');
+  tb.innerHTML = '';
+  const I = inputs();
+  legs.forEach((leg, i) => {
+    const m = bs(leg.type, I.S, leg.strike, I.iv, I.days/365, I.r).price;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><select data-i="${i}" data-k="type"><option ${leg.type==='CE'?'selected':''}>CE</option><option ${leg.type==='PE'?'selected':''}>PE</option></select></td>
+      <td><input type="number" step="50" value="${leg.strike}" data-i="${i}" data-k="strike" style="width:90px"></td>
+      <td><select data-i="${i}" data-k="side"><option value="buy" ${leg.side==='buy'?'selected':''}>buy</option><option value="sell" ${leg.side==='sell'?'selected':''}>sell</option></select></td>
+      <td><input type="number" min="1" value="${leg.lots}" data-i="${i}" data-k="lots" style="width:70px"></td>
+      <td><input type="number" step="0.5" placeholder="model" value="${leg.premium ?? ''}" data-i="${i}" data-k="premium" style="width:90px"></td>
+      <td>${m.toFixed(2)}</td>
+      <td><button data-i="${i}" data-k="del">✕</button></td>`;
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll('[data-k]').forEach(el => el.addEventListener('input', onLegEdit));
+  tb.querySelectorAll('select[data-k]').forEach(el => el.addEventListener('change', onLegEdit));
+  tb.querySelectorAll('button[data-k=del]').forEach(el => el.addEventListener('click', e => { legs.splice(+el.dataset.i,1); refresh(); }));
+}
+function onLegEdit(e){
+  const i = +e.target.dataset.i, k = e.target.dataset.k;
+  if (k==='del') return;
+  if (k==='premium') legs[i].premium = e.target.value === '' ? null : +e.target.value;
+  else if (k==='strike') legs[i].strike = +e.target.value;
+  else if (k==='lots') legs[i].lots = Math.max(1, +e.target.value || 1);
+  else legs[i][k] = e.target.value;
+  refresh(false);
+}
+
+// price used for a leg today (model unless user typed one)
+function legPremium(leg, I){
+  return (leg.premium!=null && !isNaN(leg.premium)) ? leg.premium : bs(leg.type, I.S, leg.strike, I.iv, I.days/365, I.r).price;
+}
+// profit per unit of the whole position at spot x, given days remaining T (0 = expiry)
+function positionValue(x, I, Tdays){
+  let total = 0;
+  for (const leg of legs){
+    const q = leg.lots * I.lot;
+    const prem = legPremium(leg, I);  // premium paid/received at trade time
+    const valueNow = bs(leg.type, x, leg.strike, I.iv, Tdays/365, I.r).price;
+    const sign = leg.side==='buy' ? 1 : -1;
+    // P&L per unit = sign * (value - premium at entry)
+    total += sign * (valueNow - prem) * q;
+  }
+  return total;
+}
+function expiryPnl(x, I){
+  let total = 0;
+  for (const leg of legs){
+    const q = leg.lots * I.lot;
+    const prem = legPremium(leg, I);
+    const intr = leg.type==='CE' ? Math.max(x-leg.strike,0) : Math.max(leg.strike-x,0);
+    const sign = leg.side==='buy' ? 1 : -1;
+    total += sign * (intr - prem) * q;
+  }
+  return total;
+}
+
+// ---------- summary ----------
+function summarise(I){
+  const lo = I.S*0.7, hi = I.S*1.3, step = Math.max(1, Math.round(I.S*0.001));
+  let maxP=-Infinity, maxL=Infinity, bes=[], prev=null, px=null;
+  for (let x=lo; x<=hi; x+=step){
+    const v = expiryPnl(x, I);
+    if (v>maxP) maxP=v;
+    if (v<maxL) maxL=v;
+    if (prev!==null && Math.sign(prev.v)!==Math.sign(v) && prev.v!==0){
+      bes.push(prev.x + (x-prev.x)*(-prev.v)/(v-prev.v));
+    }
+    prev = {x, v};
+  }
+  // unlimited checks: compare with the ends of the range
+  const edgeLo = expiryPnl(lo*0.5, I), edgeHi = expiryPnl(hi*1.5, I);
+  const unlimitedUp = edgeHi > maxP + 1e-6 && edgeHi > edgeLo;
+  const unlimitedDown = edgeLo < maxL - 1e-6;
+  return {maxP, maxL, bes, unlimitedUp, unlimitedDown};
+}
+
+function netPremium(I){
+  let n=0;
+  for (const leg of legs){ const sign = leg.side==='buy'?-1:1; n += sign*legPremium(leg,I)*leg.lots*I.lot; }
+  return n; // positive = credit received
+}
+
+function greeksTotal(I){
+  const g = {delta:0, gamma:0, theta:0, vega:0};
+  for (const leg of legs){
+    const b = bs(leg.type, I.S, leg.strike, I.iv, I.days/365, I.r);
+    const sign = leg.side==='buy'?1:-1;
+    const q = leg.lots*I.lot*sign;
+    g.delta += b.delta*q; g.gamma += b.gamma*q; g.theta += b.theta*q; g.vega += b.vega*q;
+  }
+  return g;
+}
+
+function probabilities(I){
+  // lognormal distribution of spot at expiry: ln(S_T) ~ N(ln S + (r-σ²/2)T, σ²T)
+  const T = Math.max(I.days,0.0001)/365;
+  const mu = Math.log(I.S) + (I.r - 0.5*I.iv*I.iv)*T, sd = I.iv*Math.sqrt(T);
+  const probBelow = x => cdf((Math.log(x)-mu)/sd);
+  const oneSd = I.S*I.iv*Math.sqrt(T);
+  // probability of profit from the discrete grid
+  let pp = 0;
+  const lo=I.S*0.5, hi=I.S*1.5, step=Math.max(1, Math.round(I.S*0.0025));
+  for (let x=lo; x<hi; x+=step){
+    const p = probBelow(x+step) - probBelow(x);
+    if (expiryPnl(x+step/2, I) > 0) pp += p;
+  }
+  return {oneSd, pp, sd};
+}
+
+// ---------- render ----------
+function renderStats(I){
+  const s = summarise(I);
+  const np = netPremium(I);
+  const maxP = s.unlimitedUp || s.unlimitedDown ? (s.unlimitedUp ? 'Unlimited' : fmt(s.maxP,0)) : fmt(s.maxP,0);
+  const maxL = s.unlimitedDown || s.unlimitedUp ? (s.unlimitedDown ? 'Unlimited' : fmt(s.maxL,0)) : fmt(s.maxL,0);
+  const be = s.bes.length ? s.bes.map(b=>b.toFixed(0)).join(', ') : 'none in range';
+  $('stats').innerHTML = `
+    <div><span class="muted">Net premium</span><b class="${cls(np)}">${np>=0?'Credit ':'Debit '}₹${Math.abs(np).toLocaleString('en-IN',{maximumFractionDigits:0})}</b></div>
+    <div><span class="muted">Max profit</span><b class="pos">${typeof maxP==='string'&&maxP==='Unlimited'?'Unlimited':'₹'+Math.round(s.maxP).toLocaleString('en-IN')}</b></div>
+    <div><span class="muted">Max loss</span><b class="neg">${maxL==='Unlimited'?'Unlimited':'₹'+Math.round(s.maxL).toLocaleString('en-IN')}</b></div>
+    <div><span class="muted">Breakeven(s) at expiry</span><b>${be}</b></div>`;
+  $('statsNote').textContent = legs.length ? 'Max profit and loss are measured across spot from 70% to 130% of your spot input; "Unlimited" means the payoff keeps growing past that range.' : 'Add legs to see the summary.';
+}
+function renderGreeks(I){
+  const g = greeksTotal(I);
+  const rows = [
+    ['Delta', g.delta.toFixed(2), `Like holding about ${Math.abs(g.delta).toFixed(0)} units of the index (${g.delta>=0?'long':'short'}): value changes by about ₹${Math.abs(g.delta).toFixed(0)} per 1-point move in spot.`],
+    ['Gamma', g.gamma.toFixed(4), `Delta changes by about ${g.gamma.toFixed(4)} per 1-point move in spot.`],
+    ['Theta', '₹'+g.theta.toFixed(0)+' / day', 'Time-decay gain (positive) or cost (negative) per day, all else equal.'],
+    ['Vega', '₹'+g.vega.toFixed(0)+' per vol point', 'Change in value for a 1-point rise in IV.']
+  ];
+  $('greeks').innerHTML = rows.map(r=>`<tr><td>${r[0]}</td><td class="${cls(parseFloat(r[1].replace('₹','')))}">${r[1]}</td><td style="text-align:left">${r[2]}</td></tr>`).join('');
+}
+function renderProbs(I){
+  if (!legs.length){ $('probs').innerHTML=''; return; }
+  const p = probabilities(I);
+  $('probs').innerHTML = `
+    <div><span class="muted">Chance of profit at expiry (model)</span><b>${(p.pp*100).toFixed(1)}%</b></div>
+    <div><span class="muted">Expected 1-sigma move by expiry</span><b>±${p.oneSd.toFixed(0)} pts</b></div>
+    <div><span class="muted">Range covering ~68% of outcomes</span><b>${(I.S-p.oneSd).toFixed(0)} – ${(I.S+p.oneSd).toFixed(0)}</b></div>`;
+}
+
+function drawChart(I){
+  const c = $('chart'), ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w*dpr; c.height = h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  if (!legs.length){ ctx.fillStyle = getComputedStyle(c).color; ctx.fillText('Add legs to see the chart', 10, 20); return; }
+  const lo=I.S*0.85, hi=I.S*1.15, N=200;
+  const dp = +$('daysPassed').value;
+  const Tnow = Math.max(I.days - dp, 0);
+  const xs=[], expV=[], nowV=[];
+  for (let i=0;i<=N;i++){ const x=lo+(hi-lo)*i/N; xs.push(x); expV.push(expiryPnl(x,I)); nowV.push(positionValue(x,I,Tnow)); }
+  const all = expV.concat(nowV);
+  const ymin = Math.min(...all, 0), ymax = Math.max(...all, 0);
+  const pad=40, yr = (ymax-ymin)||1;
+  const X = x => pad + (x-lo)/(hi-lo)*(w-pad-10);
+  const Y = v => h-pad - (v-ymin)/yr*(h-pad-10);
+  // zero line
+  ctx.strokeStyle = getComputedStyle(c).color; ctx.globalAlpha=0.35; ctx.beginPath(); ctx.moveTo(pad,Y(0)); ctx.lineTo(w-10,Y(0)); ctx.stroke(); ctx.globalAlpha=1;
+  // spot marker
+  ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(X(I.S),10); ctx.lineTo(X(I.S),h-pad); ctx.stroke(); ctx.setLineDash([]);
+  // curves
+  function curve(vals,color){ ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); vals.forEach((v,i)=>{ const px=X(xs[i]), py=Y(v); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke(); }
+  curve(expV,'#2563eb'); curve(nowV,'#b7791f');
+  // labels
+  ctx.fillStyle = getComputedStyle(c).color; ctx.font='12px system-ui';
+  ctx.fillText('Spot at expiry →', w-130, h-8);
+  ctx.fillText('P&L ₹'+Math.round(ymax), 4, 14);
+  ctx.fillText('₹'+Math.round(ymin), 4, h-pad);
+  ctx.fillText('spot '+I.S.toFixed(0), X(I.S)+4, 24);
+}
+
+function refresh(full=true){
+  const I = inputs();
+  if (full) renderLegs();
+  renderStats(I); renderGreeks(I); renderProbs(I); drawChart(I);
+  $('dpLabel').textContent = $('daysPassed').value;
+  $('daysPassed').max = Math.max(1, Math.floor(I.days));
+}
+
+// ---------- presets ----------
+function roundK(x){ return Math.round(x/50)*50; }
+const PRESETS = {
+  ic(S){ return [
+    {type:'PE', strike:roundK(S*0.96), side:'buy', lots:1, premium:null},
+    {type:'PE', strike:roundK(S*0.98), side:'sell', lots:1, premium:null},
+    {type:'CE', strike:roundK(S*1.02), side:'sell', lots:1, premium:null},
+    {type:'CE', strike:roundK(S*1.04), side:'buy', lots:1, premium:null}]; },
+  straddle(S){ const k=roundK(S); return [
+    {type:'CE', strike:k, side:'buy', lots:1, premium:null},
+    {type:'PE', strike:k, side:'buy', lots:1, premium:null}]; },
+  strangle(S){ return [
+    {type:'CE', strike:roundK(S*1.02), side:'sell', lots:1, premium:null},
+    {type:'PE', strike:roundK(S*0.98), side:'sell', lots:1, premium:null}]; },
+  bcs(S){ return [
+    {type:'CE', strike:roundK(S), side:'buy', lots:1, premium:null},
+    {type:'CE', strike:roundK(S*1.03), side:'sell', lots:1, premium:null}]; },
+  bps(S){ return [
+    {type:'PE', strike:roundK(S), side:'buy', lots:1, premium:null},
+    {type:'PE', strike:roundK(S*0.97), side:'sell', lots:1, premium:null}]; }
+};
+
+// ---------- wiring ----------
+$('addLeg').addEventListener('click', () => { const S=+$('spot').value; legs.push({type:'CE', strike:roundK(S), side:'buy', lots:1, premium:null}); refresh(); });
+$('clearLegs').addEventListener('click', () => { legs=[]; refresh(); });
+$('loadPreset').addEventListener('click', () => { const k=$('preset').value; if(!k) return; legs = PRESETS[k](+$('spot').value); refresh(); });
+['spot','iv','days','lot','rate'].forEach(id => $(id).addEventListener('input', () => refresh(false)));
+$('daysPassed').addEventListener('input', () => refresh(false));
+window.addEventListener('resize', () => refresh(false));
+// start with a sample so beginners see something
+legs = PRESETS.ic(+$('spot').value);
+refresh();
+</script>
+</body>
+</html>
