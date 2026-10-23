@@ -127,7 +127,24 @@
 </section>
 
 <section class="card wide">
-  <h2>7. Learn the terms</h2>
+  <h2>7. Live chart (TradingView)</h2>
+  <p class="muted">TradingView's free chart widget. Prices and charts come from TradingView, under its own terms. Chart may load slowly or stay blank if you are offline or blocking scripts.</p>
+  <div id="tv_chart" style="height:420px"></div>
+  <p class="muted" id="tvStatus"></p>
+</section>
+
+<section class="card wide">
+  <h2>8. NSE option chain (your own download)</h2>
+  <p class="muted">Open the <a href="https://www.nseindia.com/option-chain" target="_blank" rel="noopener">NSE option chain page</a>, choose NIFTY and an expiry, use its download (CSV) option, then load that file below. This page never fetches NSE data by itself.</p>
+  <input type="file" id="csvFile" accept=".csv,text/csv">
+  <div class="muted" id="chainStatus"></div>
+  <div class="scroll"><table id="chainTable"></table></div>
+  <div class="row" style="margin-top:8px"><button id="useAtmIv">Use ATM implied volatility as IV</button></div>
+  <p class="muted">ATM = strike nearest your spot input. The average of its call and put IV is placed in the IV box.</p>
+</section>
+
+<section class="card wide">
+  <h2>9. Learn the terms</h2>
   <details open><summary>Delta</summary><dl><dd>How much the position's value changes for a 1-point rise in spot. Calls are positive, puts negative. Delta near ±0.5 roughly means a 50% chance of finishing in the money.</dd></dl></details>
   <details><summary>Gamma</summary><dl><dd>How fast delta changes as spot moves. High near expiry and at-the-money. Long options have positive gamma; sellers have negative gamma and face sharper losses on big moves.</dd></dl></details>
   <details><summary>Theta</summary><dl><dd>Value lost per day from time decay, all else equal. Option buyers pay theta; option sellers earn it. Decay speeds up as expiry nears.</dd></dl></details>
@@ -149,6 +166,7 @@
 
 </main>
 
+<script src="https://s3.tradingview.com/tv.js"></script>
 <script>
 // ---------- math helpers ----------
 function pdf(x){ return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI); }
@@ -425,6 +443,91 @@ $('loadPreset').addEventListener('click', () => { const k=$('preset').value; if(
 ['spot','iv','days','lot','rate'].forEach(id => $(id).addEventListener('input', () => refresh(false)));
 $('daysPassed').addEventListener('input', () => refresh(false));
 window.addEventListener('resize', () => refresh(false));
+// ---------- TradingView chart (official free widget) ----------
+function startTradingView(){
+  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  try {
+    new TradingView.widget({
+      autosize: true, symbol: "NSE:NIFTY", interval: "5", timezone: "Asia/Kolkata",
+      theme: isDark ? "dark" : "light", style: "1", locale: "in",
+      allow_symbol_change: true, container_id: "tv_chart"
+    });
+    $('tvStatus').textContent = '';
+  } catch (e) {
+    $('tvStatus').textContent = 'Chart not loaded. Check your connection or open TradingView directly.';
+  }
+}
+window.addEventListener('load', () => {
+  if (typeof TradingView !== 'undefined') startTradingView();
+  else $('tvStatus').textContent = 'Chart script did not load (offline or blocked).';
+});
+
+// ---------- NSE option-chain CSV (user-supplied file) ----------
+function parseCsv(text){
+  const rows = []; let row = [], cur = '', quoted = false;
+  for (let i = 0; i < text.length; i++){
+    const ch = text[i];
+    if (quoted){
+      if (ch === '"' && text[i+1] === '"'){ cur += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cur += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ','){ row.push(cur); cur = ''; }
+    else if (ch === '\n'){ row.push(cur); rows.push(row); row = []; cur = ''; }
+    else if (ch !== '\r') cur += ch;
+  }
+  if (cur.length || row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+function num(x){ const v = parseFloat(String(x||'').replace(/,/g,'')); return isNaN(v) ? NaN : v; }
+let chain = [];
+function parseChain(text){
+  const rows = parseCsv(text);
+  // The column-name row is the one holding both STRIKE and LTP (group labels like CALLS/PUTS sit above it).
+  const isStrike = c => /^STRIKE( PRICE)?$/i.test(c.trim());
+  const hIdx = rows.findIndex(r => r.some(isStrike) && r.some(c => c.trim().toUpperCase() === 'LTP'));
+  if (hIdx < 0) throw new Error('No header row with STRIKE and LTP found. Is this an NSE option-chain CSV?');
+  const h = rows[hIdx].map(c => c.trim().toUpperCase());
+  const s = h.findIndex(c => c === 'STRIKE' || c === 'STRIKE PRICE');
+  const find = (name, from, to) => { for (let i = from; i < to; i++) if (h[i] === name) return i; return -1; };
+  const cIV = find('IV', 0, s), cLTP = find('LTP', 0, s);
+  const pLTP = find('LTP', s+1, h.length), pIV = find('IV', s+1, h.length);
+  if (cIV < 0 || cLTP < 0 || pIV < 0 || pLTP < 0) throw new Error('Expected IV and LTP columns on both sides of STRIKE.');
+  chain = [];
+  for (const r of rows.slice(hIdx+1)){
+    const k = num(r[s]);
+    if (isNaN(k)) continue;
+    chain.push({strike:k, callIV:num(r[cIV]), callLTP:num(r[cLTP]), putLTP:num(r[pLTP]), putIV:num(r[pIV])});
+  }
+  if (!chain.length) throw new Error('No strike rows found in the file.');
+}
+function renderChain(){
+  const t = $('chainTable');
+  if (!chain.length){ t.innerHTML = ''; return; }
+  t.innerHTML = '<thead><tr><th>Strike</th><th>Call IV %</th><th>Call LTP</th><th>Put LTP</th><th>Put IV %</th></tr></thead><tbody>' +
+    chain.map(c => `<tr><td>${c.strike}</td><td>${isNaN(c.callIV)?'-':c.callIV.toFixed(2)}</td><td>${isNaN(c.callLTP)?'-':c.callLTP.toFixed(2)}</td><td>${isNaN(c.putLTP)?'-':c.putLTP.toFixed(2)}</td><td>${isNaN(c.putIV)?'-':c.putIV.toFixed(2)}</td></tr>`).join('') + '</tbody>';
+}
+$('csvFile').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { parseChain(String(reader.result)); $('chainStatus').textContent = `Loaded ${chain.length} strikes from ${f.name}.`; }
+    catch (err) { chain = []; $('chainStatus').textContent = err.message; }
+    renderChain();
+  };
+  reader.readAsText(f);
+});
+$('useAtmIv').addEventListener('click', () => {
+  if (!chain.length){ $('chainStatus').textContent = 'Load a CSV first.'; return; }
+  const S = +$('spot').value;
+  const atm = chain.reduce((best, c) => Math.abs(c.strike - S) < Math.abs(best.strike - S) ? c : best);
+  const ivs = [atm.callIV, atm.putIV].filter(v => !isNaN(v));
+  if (!ivs.length){ $('chainStatus').textContent = 'No IV found at the ATM strike.'; return; }
+  $('iv').value = (ivs.reduce((a,b)=>a+b,0)/ivs.length).toFixed(2);
+  $('chainStatus').textContent = `ATM strike ${atm.strike}: IV set to ${$('iv').value}%.`;
+  refresh(false);
+});
+
 // start with a sample so beginners see something
 legs = PRESETS.ic(+$('spot').value);
 refresh();
